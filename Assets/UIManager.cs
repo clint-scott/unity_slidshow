@@ -19,7 +19,7 @@ public class UIManager : MonoBehaviour
 	private VideoPlayer videoPlayer;
 	private AudioSource audioSource;
 	private Vector3[] screenVectors;
-	private int menuIndex = 0;
+	private int menuIndex = 1;
 	private float delay = 0,canvasWidth,canvasHeight,btnWrapperVectorX;
 	private Coroutine coroutine;
 
@@ -49,19 +49,17 @@ public class UIManager : MonoBehaviour
 			index++;
 		}
 
-		selectScreen(1);
+		Invoke("selectScreen",2f);
 	}
 
-	public void selectScreen(int screenIndex) {
+	public void selectScreen() {
 
 		if(menus.Count > 0) {
 			closeScreen();
 			//delay = menus.Count > 0 ? TweenDuration : 0;
 		}
 
-		delay = screenIndex == 1 ? 3f : 0;
-
-		menuIndex = screenIndex;
+		delay = menuIndex == 1 ? 3f : 0;
 
 		GameObject menu = new GameObject("Menu_0"+menuIndex,typeof(RectTransform));
 	
@@ -75,7 +73,6 @@ public class UIManager : MonoBehaviour
         rectTransform.anchorMax = Vector2.one;
         rectTransform.anchoredPosition = new Vector2(.5f,.5f);
 
-		//menu.transform.position = screenVectors[menuIndex-1];
 		menu.transform.localPosition = screenVectors[menuIndex-1];
 		menu.transform.SetParent(Canvas.transform,false);
 		menus.Add(menu);
@@ -146,7 +143,7 @@ public class UIManager : MonoBehaviour
 			menuIndex++;
 			Debug.Log("***** menuIndex: "+menuIndex+" | VideoClips.Length: "+VideoClips.Length);
 			if(menuIndex-1 < VideoClips.Length) {
-				selectScreen(menuIndex);
+				selectScreen();
 			}
 		});
 	}
