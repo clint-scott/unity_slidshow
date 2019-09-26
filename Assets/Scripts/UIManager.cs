@@ -7,125 +7,113 @@ using DentedPixel;
 
 public class UIManager : MonoBehaviour
 {
-	public GameObject Canvas,MainMenu,BackgroundImage;
+	public GameObject Canvas, HUD, VideoWrapper, MenuButton, DebugText;
 	public float TweenDuration = 0.5f;
-	public float ButtonWidth = 45;
 	public VideoClip[] VideoClips;
-	public List<GameObject> MenuButtons = new List<GameObject>();
 
 
-	private List<GameObject> screens = new List<GameObject>();
+
+	private GameObject activeScreen, btnWrapper;
 	private VideoPlayer videoPlayer;
 	private AudioSource audioSource;
+	private UnityEngine.UI.Text inputText;
 	private Vector3[] screenVectors;
-	private int screenIndex = 1;
-	private bool pauseVideo = true;
-	private float canvasWidth,canvasHeight,btnWrapperVectorX;
+	private bool pauseVideo = true, allowTouch = false;
 	private DeviceOrientation orientation;
 	private Coroutine coroutine;
+	public List<GameObject> menuButtons = new List<GameObject>(), activeButtons = new List<GameObject>();
+	private int openScreenIndex = 0, currentIndex = 0, targetIndex = 0;
+	private float btnSize = 0.6f,// % of the width of the stage
+				btnWidth,
+				btnOffset,
+				canvasWidth,
+				canvasHeight;
 
 
 	public void Start () {
-		orientation = Input.deviceOrientation;
+		//Used for debugging traces
+		inputText = DebugText.GetComponent<UnityEngine.UI.Text>();
+
+		//Set up event handler for Vuzix touch gestures 
+		VuzixInput.onVuzixInputEvent += onVuzixInputEvent;
+
+		videoPlayer =  gameObject.AddComponent<VideoPlayer>();
+		audioSource =  gameObject.AddComponent<AudioSource>();
 		
+		orientation = Input.deviceOrientation;
 		updateOrientation();
 
+		btnWrapper = new GameObject("btnWrapper");
+		btnWrapper.AddComponent<RectTransform>();
+		btnWrapper.transform.SetParent (HUD.transform, true);
+		LeanTween.move(btnWrapper.GetComponent<RectTransform>(),new Vector3(canvasWidth, 0, 0),0);
+		
 		int index = 0;
-		foreach(GameObject button in MenuButtons) {
-			float xPos = Mathf.Round((ButtonWidth*1.5f)*index);
+		while(index < VideoClips.Length) {
+			float xPos = btnOffset*index;
+			
+			GameObject button = Instantiate(MenuButton, Vector3.zero, Quaternion.identity, btnWrapper.transform);
+				button.transform.localPosition = new Vector3(xPos,0,0);
+				button.name = "btn_video_"+index;
+			
 			RectTransform btnRect = button.GetComponent<RectTransform>();
-			btnRect.sizeDelta = new Vector2(ButtonWidth, ButtonWidth);
+				btnRect.sizeDelta = new Vector2(btnWidth, btnWidth);
 
-			button.transform.localPosition = new Vector3(xPos,0,0);
+			LeanTween.scale(btnRect,new Vector3(0.7f,0.7f,0.7f),0);
+
+			GameObject label = button.transform.GetChild(0).gameObject;
+			label.GetComponent<UnityEngine.UI.Text>().text = "Step "+(index+1);
+			
+			menuButtons.Add(button);
 			index++;
 		}
-		/* RectTransform bkgRect = BackgroundImage.GetComponent<RectTransform>();
-		Debug.Log("bkgRect.localScale: "+bkgRect.localScale);
-		LeanTween.scale(bkgRect,bkgRect.localScale*1.1f,10f)
-			.setLoopPingPong ()
-			.setEaseInOutQuad(); */
-
-
-		//Debug.Log("***** canvasResX: "+canvasResX+" | canvasResY: "+canvasResY+" | canvasWidth: "+canvasWidth);
-		//Debug.Log("***** screenWidth: "+Screen.width+" | screenHeight: "+Screen.height);
-
-		Invoke("screenSelect",2f);
+		
+		Invoke("animateBtnWrapper",1f);
 	}
 
 	public void Update() {
+		VuzixInput.Update(Time.unscaledDeltaTime);
+
 		if(orientation != Input.deviceOrientation) {
 			updateOrientation();
 		}
 	}
 
+	public void screenCreate() {
 
-	public void screenSelect() {
-
-		if(screens.Count > 0) {
-			screenClose();
-			//delay = screens.Count > 0 ? TweenDuration : 0;
-		}
-
-		//delay = screenIndex == 1 ? 3f : 0;
-
-		GameObject screen = new GameObject("Screen_0"+screenIndex,typeof(RectTransform));
-		AspectRatioFitter ratioFitter = screen.AddComponent<AspectRatioFitter>();
-
-		RawImage rawImage = screen.AddComponent<RawImage>();
-			rawImage.color = new Color(255,255,255);
+		activeScreen = Instantiate(VideoWrapper, Vector3.zero, Quaternion.identity, Canvas.transform);
+		activeScreen.transform.localPosition = screenVectors[currentIndex];
+		activeScreen.name = "vidScreen";
 		
-		RectTransform rectTransform = screen.GetComponent<RectTransform>();
-		
-		rectTransform.sizeDelta = Vector2.zero;
-        rectTransform.anchorMin = Vector2.zero;
-        rectTransform.anchorMax = Vector2.one;
-        rectTransform.anchoredPosition = new Vector2(.5f,.5f);
-
-		ratioFitter.aspectMode = AspectRatioFitter.AspectMode.WidthControlsHeight;
-		ratioFitter.aspectRatio = 1.777f;
-
-		screen.transform.localPosition = screenVectors[screenIndex-1];
-		screen.transform.SetParent(Canvas.transform,false);
-		screens.Add(screen);
+		openScreenIndex = currentIndex;
 
 		coroutine = StartCoroutine(initVideo());
-		//Invoke("animateMainMenu",delay);
-		
-		//Invoke("playVideo",delay);
 	}
 
     private void screenOpen() {
-		LeanTween.move(screens[screens.Count-1].GetComponent<RectTransform>(),Vector3.zero,TweenDuration).setEaseInOutQuad().setOnComplete(() => {
+		LeanTween.move(activeScreen.GetComponent<RectTransform>(),Vector3.zero,TweenDuration).setEaseInOutQuad().setOnComplete(() => {
 			pauseVideo = false;
 		});
 	}
 
 	public void screenClose() {
-		LeanTween.move(screens[screens.Count-1].GetComponent<RectTransform>(),screenVectors[screenIndex-1],TweenDuration)
+		LeanTween.move(activeScreen.GetComponent<RectTransform>(),screenVectors[openScreenIndex],TweenDuration)
 		.setEaseInQuad()
 		.setOnComplete(() => {
-			screenRemove();
-			screenIndex++;
-			
-			if(screenIndex-1 < VideoClips.Length) {
-				screenSelect();
-			}
+			Destroy(activeScreen);
 		});
 	}
 
-	private void screenRemove() {
-		Destroy(screens[0]);
-		screens.RemoveAt(0);
-	}
-
 	IEnumerator initVideo() {
-		//Debug.Log("********** Initializing Video | delay: "+delay);
+		//Debug.Log("********** Initializing Video");
 
-		videoPlayer = gameObject.AddComponent<VideoPlayer>();
-		audioSource = gameObject.AddComponent<AudioSource>();
+		videoPlayer = gameObject.GetComponent<VideoPlayer>();
+		audioSource =  gameObject.GetComponent<AudioSource>();
+		//audioSource = gameObject.AddComponent<AudioSource>();
 
-		GameObject screen = screens[screens.Count-1];
-		RawImage rawImage = screen.GetComponent<RawImage>();
+		//GameObject screen = screens[screens.Count-1];
+		
+		RawImage rawImage = activeScreen.transform.Find("vidScreen").transform.GetComponent<RawImage>();
 		
 		videoPlayer.playOnAwake = false;
 		videoPlayer.waitForFirstFrame = true;
@@ -138,8 +126,9 @@ public class UIManager : MonoBehaviour
 
 		videoPlayer.EnableAudioTrack(0,true);
 		videoPlayer.SetTargetAudioSource(0,audioSource);
-    
-		videoPlayer.clip = VideoClips[screenIndex-1];
+
+		
+		videoPlayer.clip = VideoClips[currentIndex];
 		videoPlayer.Prepare();
 
 		WaitForSeconds waitTime = new WaitForSeconds (1);
@@ -151,7 +140,6 @@ public class UIManager : MonoBehaviour
 			break;
 		}
 
-		
 		//Debug.Log("********** Done Preparing Video");
 
 		rawImage.texture = videoPlayer.texture;
@@ -164,7 +152,7 @@ public class UIManager : MonoBehaviour
 		}
 
 		videoPlayer.Pause();
-		animateMainMenu();
+		Invoke("screenOpen",0.5f);
 
 		while (pauseVideo) {
 			yield return null;
@@ -175,99 +163,181 @@ public class UIManager : MonoBehaviour
 
     	while (videoPlayer.isPlaying)
         {
-            ////Debug.LogWarning("Video Time: " + Mathf.FloorToInt((float)videoPlayer.time));
+            //Debug.LogWarning("Video Time: " + Mathf.FloorToInt((float)videoPlayer.time));
             yield return null;
         }
 		
 		pauseVideo = true;
+		allowTouch = true;
 		StopCoroutine(coroutine);
 		screenClose();
 	}
 
-	private void animateButton(float duration) {
-		float shortTween = TweenDuration*.5f;
-		float longTween = TweenDuration*2f;
-		float delay = screenIndex == 1 ? Mathf.Max(duration-longTween, 0) : 0;
+	private void scrollbtnWrapper() {
+		
+		if (videoPlayer.isPlaying) {
+ 			pauseVideo = true;
+			StopCoroutine(coroutine);
+		}
+		if(activeScreen != null) {
+			screenClose();
+		}
 
-		if(screenIndex>1) {
-			RectTransform oldBtnRect = MenuButtons[screenIndex-2].GetComponent<RectTransform>();
-			LeanTween.scale(oldBtnRect,new Vector3(1f,1f,1f),longTween)
-				.setEaseInOutQuad();
-		};
+		animateBtnWrapper();
+	}
+
+	private void animateBtnWrapper() {
 		
-		RectTransform newBtnRect = MenuButtons[screenIndex-1].GetComponent<RectTransform>();
+		float newVectorX = 0-(targetIndex*btnOffset),
+			absNew = Mathf.Abs(newVectorX),
+			oldVectorX = Mathf.Abs(btnWrapper.GetComponent<RectTransform>().localPosition.x),
+			absOld = Mathf.Abs(oldVectorX);
 		
-		LTSeq seq = LeanTween.sequence();
-			seq.append(delay);
-			seq.append(
-				LeanTween.scale(newBtnRect,new Vector3(1.4f,1.4f,1f),longTween)
-						.setEaseInOutQuad()
-						.setDelay(delay)
-			);
-			seq.append(0.75f);
-			seq.append(
-				LeanTween.scale(newBtnRect,new Vector3(1.3f,1.3f,1f),shortTween)
+		currentIndex = targetIndex;
+
+		float distance = Mathf.Max(absNew, oldVectorX) - Mathf.Min(absNew, oldVectorX);
+		float duration = getTransitionDuration(distance);
+
+		Vector3 btnWrapperVector = new Vector3(newVectorX,0,0);
+		
+		LeanTween.move(btnWrapper.GetComponent<RectTransform>(),btnWrapperVector,duration).setEaseInOutQuad();
+		
+		animateButton(duration, "focus");
+	}
+
+	private void animateButton(float duration, string mode) {
+
+		float shortTween = TweenDuration*.333f;
+		float longTween = TweenDuration*2f;
+		float delay = currentIndex == 0 ? Mathf.Max(duration-longTween, 0) : 0;
+		
+		GameObject newBtn = menuButtons[currentIndex];
+		RectTransform newBtnRect = newBtn.GetComponent<RectTransform>();
+		
+		switch(mode) {
+			case "focus":
+				int ind = activeButtons.Count;
+				while(ind > 0) {
+					ind--;
+
+					RectTransform oldBtnRect = activeButtons[ind].GetComponent<RectTransform>();
+					
+					LeanTween.scale(oldBtnRect,new Vector3(0.7f,0.7f,0.7f),duration)
+						.setEaseInOutQuad();
+					
+					activeButtons.RemoveAt(ind);
+				}
+				
+				activeButtons.Add(newBtn);
+
+				LTSeq seq = LeanTween.sequence();
+					seq.append(delay);
+					seq.append(
+						LeanTween.scale(newBtnRect,new Vector3(1f,1f,1f),duration)
+								.setEaseInOutQuad()
+								.setDelay(delay)
+					);
+					seq.append(() => {
+						//enable button
+						allowTouch = true;
+					});
+				break;
+			case "click":
+				LeanTween.scale(newBtnRect,new Vector3(0.9f,0.9f,1f),shortTween)
 					.setEaseInOutQuad()
 					.setLoopPingPong (1)
 					.setOnComplete(() => {
-						//Invoke("playVideo",0.25f);
-						//coroutine = StartCoroutine(initVideo());
 						Invoke("screenOpen",0.5f);
-					})
-			);
-	}
-
-	private void animateMainMenu() {
-		
-		float offset = Mathf.Round(ButtonWidth*1.5f);
-
-		float newVectorX = 0-((screenIndex-1)*offset);
-		float distance = btnWrapperVectorX - newVectorX;
-
-		btnWrapperVectorX = newVectorX;
-
-		Vector3 btnWrapperVector = new Vector3(btnWrapperVectorX,0,0);
-
-		float duration = getTransitionDuration(distance);
-
-		LeanTween.move(MainMenu.GetComponent<RectTransform>(),btnWrapperVector,duration).setEaseInOutQuad();
-		
-		animateButton(duration);
+					});
+				break;
+		}
 	}
 
 	private float getTransitionDuration(float distance) {
-		Debug.Log("***** getTransitionDuration | distance: "+distance+" | ButtonWidth: "+ButtonWidth);
-		return (distance/(ButtonWidth))*TweenDuration;
+		//Debug.Log("***** getTransitionDuration | distance: "+distance+" | btnWidth: "+btnWidth);
+		return Mathf.Abs(distance/btnOffset)*TweenDuration;
 	}
     
 	private void updateOrientation() {
 		//Debug.Log("**** updateOrientation ****");
-
+		
+		//float aspectRatio = 9f/16f;// Aspect Ratio of Videos
 		bool isLandscape = Screen.width > Screen.height;
-		float canvasResX = Canvas.GetComponent<CanvasScaler>().referenceResolution.x;
-		float canvasResY = Canvas.GetComponent<CanvasScaler>().referenceResolution.y;
+		
+		canvasWidth = Canvas.GetComponent<CanvasScaler>().referenceResolution.x;
+		canvasHeight = Canvas.GetComponent<CanvasScaler>().referenceResolution.y;
+		
+		btnWidth = Mathf.Round(canvasWidth*btnSize);
+		btnOffset = btnWidth+Mathf.Round((canvasWidth-btnWidth)/2)-Mathf.Round(btnWidth*0.7f/2);
 
-		canvasWidth = canvasResX+ButtonWidth;
-		canvasHeight = canvasResY+ButtonWidth;
-
-		ButtonWidth = Mathf.Round(canvasResX*(ButtonWidth/100));
-
-		//float stageWidth = isLandscape ? canvasWidth : canvasHeight;
-		float stageHeight = isLandscape ? canvasHeight : canvasWidth;
-
-		float modCanvasHeight = canvasWidth*(16/9);
+		float videoOffsetX = canvasWidth+10;
+		float videoOffsetY = canvasHeight+10;//Mathf.Ceil(canvasHeight-((canvasWidth*aspectRatio)/2+10));
 
 		screenVectors = new Vector3[] {
-			new Vector3(-canvasWidth,0,0),
-			new Vector3(0,stageHeight,0),
-			new Vector3(canvasWidth,0,0),
-			new Vector3(0,-stageHeight,0),
-			new Vector3(-canvasWidth,0,0),
-			new Vector3(0,stageHeight,0),
+			new Vector3(-videoOffsetX,0,0),
+			new Vector3(0,videoOffsetY,0),
+			new Vector3(videoOffsetX,0,0),
+			new Vector3(0,-videoOffsetY,0),
+			new Vector3(-videoOffsetX,0,0),
+			new Vector3(0,videoOffsetY,0),
 		};
 
-		btnWrapperVectorX = (canvasWidth/2)+ButtonWidth;
-		MainMenu.transform.localPosition = new Vector3(btnWrapperVectorX,0,0);
+		//Debug.Log("videoOffsetY: "+videoOffsetY+" | canvasHeight: "+canvasHeight+" | distance: "+distance+" | duration: "+duration);
 	}
 
+	protected virtual void onVuzixInputEvent( VINPUT_EVENT touchEvent ) {
+
+		var newIndex = currentIndex;
+
+		switch( touchEvent) {
+			case VINPUT_EVENT.TAP_1FINGER:
+				// basic input "click"
+				if(allowTouch) {
+					animateButton(0, "click");
+					screenCreate();
+				}
+
+				break;
+			case VINPUT_EVENT.TAP_2FINGER:
+				// back or cancel. 
+				break;
+			case VINPUT_EVENT.SWIPE_FORWARD_1FINGER:
+				// scroll right through menu. 
+
+				newIndex = Mathf.Min(currentIndex+1, VideoClips.Length-1);
+
+				if(newIndex != targetIndex) {
+					targetIndex = newIndex;
+					CancelInvoke();
+					Invoke("scrollbtnWrapper",0.25f);
+				}
+
+				break;
+			case VINPUT_EVENT.SWIPE_BACKWARD_1FINGER:
+				// scroll left through menu.
+
+				newIndex = Mathf.Max(0, targetIndex-1);
+
+				if(newIndex != currentIndex) {
+					targetIndex = newIndex;
+					CancelInvoke();
+					Invoke("scrollbtnWrapper",0.25f);
+				}
+				
+				break;
+			case VINPUT_EVENT.SWIPE_UP_1FINGER:
+				break;
+			case VINPUT_EVENT.SWIPE_DOWN_1FINGER:
+				break;
+			case VINPUT_EVENT.SWIPE_FORWARD_2FINGER:
+				break;
+			case VINPUT_EVENT.SWIPE_BACKWARD_2FINGER:
+				break;
+			case VINPUT_EVENT.HOLD_1FINGER:
+				// open a menu! 
+				break;
+		}
+		
+		inputText.text = "touch: "+touchEvent;
+	}
 }
